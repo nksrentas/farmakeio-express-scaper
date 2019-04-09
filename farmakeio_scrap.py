@@ -66,13 +66,16 @@ def get_menu_links():
 def store_product_image(product_name, image_slider):
     k = 0
     stripped_product_name = product_name.replace(' ', '-')
+    # remove / from file name
+    clean_product_name = stripped_product_name.replace('/', '-')
     for img_element in image_slider:
-        image_name = image_folder_path + "/" + stripped_product_name + '-' + str(k) + '.jpg'
+        image_file_type = (img_element.img['src'].split('/')[-1]).split('.')[-1]
+        image_name = image_folder_path + "/" + clean_product_name + '-' + str(k) + '.' + image_file_type
         urllib.request.urlretrieve(img_element.img['src'], image_name)
         k += 1
 
 
-def extract_product_data(product):
+def extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title):
     product_link = product.select_one('.product-description.eq a')['href']
     driver.get(SITE_URL_NO_LANG + product_link)
     page_source = driver.page_source
@@ -84,11 +87,14 @@ def extract_product_data(product):
     brand_title = product_description_container.select_one('.col-md-12.brand-title').text
 
     # product title div
-    # product_title_container = product_description_container.select_one('.col-md-12.product-title')
     product_title = product_description_container.find('h1').text
 
     product_price_container = product_description_container.find('div', {'class': 'product-price'})
-    product_price_del = product_price_container.find('del').text
+    product_price_del_check = product_price_container.find('del')
+    if product_price_del_check:
+        product_price_del = product_price_del_check.text
+    else:
+        product_price_del = ''
     product_price_strong = product_price_container.find('strong').text
 
     # product status
@@ -109,12 +115,25 @@ def extract_product_data(product):
     tab_content_dict = {}
     for tab_number in tab_content:
         tab_content_dict[tab_number['id']] = tab_number.get_text('\t')
-        # print(tab_number.get_text('\t') + '\n')
+
+    # tab-1: description
+    # tab-2: instructions
+    # tab-3: components
+    tab_row = ['', '', '']
+    if tab_content_dict:
+        if 'tab-1' in tab_content_dict:
+            tab_row[0] = tab_content_dict['tab-1']
+
+        if 'tab-2' in tab_content_dict:
+            tab_row[1] = tab_content_dict['tab-2']
+
+        if 'tab-3' in tab_content_dict:
+            tab_row[2] = tab_content_dict['tab-3']
 
     # write product details to csv file
-    csv_file.writerow(
-        [brand_title, product_title, product_price_del, product_price_strong, product_status_availability,
-         product_status_barcode, product_status_code, product_description_text])
+    row = [lvl_one_title, lvl_two_title, lvl_three_title, brand_title, product_title, product_price_del, product_price_strong, product_status_availability,
+         product_status_barcode, product_status_code, product_description_text]
+    csv_file.writerow(row + tab_row)
 
 
 def expand_product_category(product_category_url, lvl_one_title='', lvl_two_title='', lvl_three_title=''):
@@ -133,12 +152,26 @@ def expand_product_category(product_category_url, lvl_one_title='', lvl_two_titl
     item_container = soup.find_all('div', {'class': 'col-lg-6 col-xl-4 mb-5'})
     loaded_item_container = soup.find_all('div', {'class': 'col-lg-4 mb-5'})
 
-    print('[-] Collect data from: {} / {} / {}   ({} total products)'.format(lvl_one_title, lvl_two_title, lvl_three_title, len(item_container) + len(loaded_item_container)))
+    print('[-] Initiating data collection from: {} / {} / {}   ({} total products)'.format(lvl_one_title, lvl_two_title, lvl_three_title, len(item_container) + len(loaded_item_container)))
     for product in item_container:
-        extract_product_data(product)
+        extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
     for product in loaded_item_container:
-        extract_product_data(product)
-    print('[+] Extract data complete path: {} / {} / {} '.format(lvl_one_title, lvl_two_title, lvl_three_title))
+        extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
+    print('[+] Data collection is over from: {} / {} / {} '.format(lvl_one_title, lvl_two_title, lvl_three_title))
+
+
+def get_total_links():
+    counter = 0
+    for k, v in menu_links.items():
+        if not isinstance(v, dict):
+            counter += 1
+            continue
+        for kk, vv in v.items():
+            if not isinstance(vv, dict):
+                counter += 1
+                continue
+            counter += len(vv.keys())
+    return counter
 
 
 if __name__ == '__main__':
@@ -148,20 +181,25 @@ if __name__ == '__main__':
     image_folder_path = os.getcwd() + '/images'
     get_menu_links()
 
-    with io.open('kappa.csv', mode='w') as csv_file:
+    remaining_links = get_total_links()
+
+    with io.open('data.csv', mode='w') as csv_file:
         csv_file = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        csv_file.writerow(['lvl_one_title', 'lvl_two_title', 'lvl_three_title', 'brand_title', 'product_title', 'product_price_del', 'product_price_strong', 'product_status_availability',
+         'product_status_barcode', 'product_status_code', 'product_description_text', 'description', 'instructions', 'components'])
         for k, v in menu_links.items():
-            # csv_file.writerow([k])
             if not isinstance(v, dict):
-                # csv_file.writerow(['++', v])
                 expand_product_category(v, k)
+                remaining_links -= 1
+                print('[*] Remaining categories: {}'.format(remaining_links))
                 continue
             for kk, vv in v.items():
-                # csv_file.writerow(['==>',kk])
                 if not isinstance(vv, dict):
-                    # csv_file.writerow(['++++', vv])
                     expand_product_category(vv, k, kk)
+                    remaining_links -= 1
+                    print('[*] Remaining categories: {}'.format(remaining_links))
                     continue
                 for kkk, vvv in vv.items():
-                    # csv_file.writerow(['====>',kkk,vvv])
                     expand_product_category(vvv, k, kk, kkk)
+                    remaining_links -= 1
+                    print('[*] Remaining categories: {}'.format(remaining_links))
