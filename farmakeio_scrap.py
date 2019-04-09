@@ -1,23 +1,41 @@
+# -*- coding: utf-8 -*-
 from selenium import webdriver
 from bs4 import BeautifulSoup
+import csv
+import io
+import os
+import urllib.request
 
 SITE_URL = 'https://www.farmakeioexpress.gr/el'
+SITE_URL_NO_LANG = 'https://www.farmakeioexpress.gr'
 WAIT = 10
 
 
 def init():
+    # Create image folder
+    current_path = os.getcwd()
+    if not os.path.exists(current_path + '/images'):
+        os.mkdir(current_path + '/images')
+
     options = webdriver.ChromeOptions()
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--incognito')
     options.add_argument('--headless')
     options.add_argument('--silent')
+    d = webdriver.Chrome("/home/satner/Desktop/farmakeio scrap/chromedriver", chrome_options=options)
+    d.set_window_size(1224, 937)
 
-    return webdriver.Chrome("/home/satner/Desktop/soup/web-srap/chromedriver", chrome_options=options)
+    return d
 
 
 def get_menu_links():
     driver.implicitly_wait(WAIT)
     driver.get(SITE_URL)
+
+    cookies_button = driver.find_element_by_xpath(
+        '//*[contains(concat(" ",normalize-space(@class)," ")," gdpr-cm-accept ")]')
+    cookies_button.click()
+
     page_source = driver.page_source
     soup = BeautifulSoup(page_source, 'lxml')
     menu_container = soup.find('div', {'class': 'row menu-items-block'})
@@ -45,21 +63,105 @@ def get_menu_links():
                 menu_links[menu_item_name][second_lvl_menu_name][link_name] = link_href
 
 
+def store_product_image(product_name, image_slider):
+    k = 0
+    stripped_product_name = product_name.replace(' ', '-')
+    for img_element in image_slider:
+        image_name = image_folder_path + "/" + stripped_product_name + '-' + str(k) + '.jpg'
+        urllib.request.urlretrieve(img_element.img['src'], image_name)
+        k += 1
+
+
+def extract_product_data(product):
+    product_link = product.select_one('.product-description.eq a')['href']
+    driver.get(SITE_URL_NO_LANG + product_link)
+    page_source = driver.page_source
+    soup = BeautifulSoup(page_source, 'lxml')
+
+    product_description_container = soup.select_one('.container-fluid.product-description .row')
+
+    # brand title div
+    brand_title = product_description_container.select_one('.col-md-12.brand-title').text
+
+    # product title div
+    # product_title_container = product_description_container.select_one('.col-md-12.product-title')
+    product_title = product_description_container.find('h1').text
+
+    product_price_container = product_description_container.find('div', {'class': 'product-price'})
+    product_price_del = product_price_container.find('del').text
+    product_price_strong = product_price_container.find('strong').text
+
+    # product status
+    product_status_container = product_description_container.select_one('.col-md-12.product-status')
+    all_p_tags = product_status_container.find_all('p')
+    product_status_availability = all_p_tags[0].text
+    product_status_barcode = all_p_tags[1].find('strong').text
+    product_status_code = all_p_tags[2].find('strong').text
+
+    # product description
+    product_description_text = product_description_container.select_one('.col-md-12.description-text').text
+
+    # store product image
+    swiper_slider = soup.select('.swiper-slide')
+    store_product_image(product_title, swiper_slider)
+
+    tab_content = soup.select('.tab-content')
+    tab_content_dict = {}
+    for tab_number in tab_content:
+        tab_content_dict[tab_number['id']] = tab_number.get_text('\t')
+        # print(tab_number.get_text('\t') + '\n')
+
+    # write product details to csv file
+    csv_file.writerow(
+        [brand_title, product_title, product_price_del, product_price_strong, product_status_availability,
+         product_status_barcode, product_status_code, product_description_text])
+
+
+def expand_product_category(product_category_url, lvl_one_title='', lvl_two_title='', lvl_three_title=''):
+    driver.get(SITE_URL_NO_LANG + product_category_url)
+    while True:
+        try:
+            load_more_button = driver.find_element_by_xpath("	//*[contains(concat(\" \",normalize-space(@class),\" \"),\" gy-load-more \")][contains(concat(\" \",normalize-space(@class),\" \"),\" btn-standard \")][contains(concat(\" \",normalize-space(@class),\" \"),\" green \")]")
+            driver.execute_script('arguments[0].click()', load_more_button)
+        except Exception as e:
+            # print(e)
+            break
+
+    page_source = driver.page_source
+    soup = BeautifulSoup(page_source, 'lxml')
+
+    item_container = soup.find_all('div', {'class': 'col-lg-6 col-xl-4 mb-5'})
+    loaded_item_container = soup.find_all('div', {'class': 'col-lg-4 mb-5'})
+
+    print('[-] Collect data from: {} / {} / {}   ({} total products)'.format(lvl_one_title, lvl_two_title, lvl_three_title, len(item_container) + len(loaded_item_container)))
+    for product in item_container:
+        extract_product_data(product)
+    for product in loaded_item_container:
+        extract_product_data(product)
+    print('[+] Extract data complete path: {} / {} / {} '.format(lvl_one_title, lvl_two_title, lvl_three_title))
+
+
 if __name__ == '__main__':
     driver = init()
+
     menu_links = {}
+    image_folder_path = os.getcwd() + '/images'
     get_menu_links()
 
-    for k,v in menu_links.iteritems():
-        print k
-        if not isinstance(v, dict):
-            print '++', v
-            continue
-        for kk,vv in v.iteritems():
-            print '==>', kk
-            if not isinstance(vv, dict):
-                print '++++', vv
+    with io.open('kappa.csv', mode='w') as csv_file:
+        csv_file = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+        for k, v in menu_links.items():
+            # csv_file.writerow([k])
+            if not isinstance(v, dict):
+                # csv_file.writerow(['++', v])
+                expand_product_category(v, k)
                 continue
-            for kkk,vvv in vv.iteritems():
-                print '====>', kkk, vvv
-        print '\n'
+            for kk, vv in v.items():
+                # csv_file.writerow(['==>',kk])
+                if not isinstance(vv, dict):
+                    # csv_file.writerow(['++++', vv])
+                    expand_product_category(vv, k, kk)
+                    continue
+                for kkk, vvv in vv.items():
+                    # csv_file.writerow(['====>',kkk,vvv])
+                    expand_product_category(vvv, k, kk, kkk)
