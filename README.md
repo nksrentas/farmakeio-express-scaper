@@ -12,12 +12,12 @@
 
 > [Python 3.6](https://www.python.org/)
 
-> [Selenium Chrome Driver](http://chromedriver.chromium.org/downloads)
+> [Download Selenium Chrome Driver](http://chromedriver.chromium.org/downloads)
 
 > Place your chrome driver path into code (line 25)
 
 
-## Running
+### Running
 
 ```python
     python3 farmakeio_scrap.py
