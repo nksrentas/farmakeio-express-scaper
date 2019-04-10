@@ -2,19 +2,21 @@
 
 ### Prerequisites
 
-> pip3 install selenium
+- [x] pip3 install selenium
 
-> pip3 install beautifulsoup4
+- [x] pip3 install beautifulsoup4
 
-> pip3 install lxml
+- [x] pip3 install lxml
 
-> Google Chrome Browser 
+- [x] pip3 install tqdm 
 
-> [Python 3.6](https://www.python.org/)
+- [x] Google Chrome Browser 
 
-> [Download Selenium Chrome Driver](http://chromedriver.chromium.org/downloads)
+- [x] [Python 3.6](https://www.python.org/)
 
-> Place your chrome driver path into code (line 25)
+- [x] [Download Selenium Chrome Driver](http://chromedriver.chromium.org/downloads)
+
+- [x] Place your chrome driver path into code (line 25)
 
 
 ### Running

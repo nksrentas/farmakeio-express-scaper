@@ -5,6 +5,7 @@ import csv
 import io
 import os
 import urllib.request
+from tqdm import tqdm
 
 SITE_URL = 'https://www.farmakeioexpress.gr/el'
 SITE_URL_NO_LANG = 'https://www.farmakeioexpress.gr'
@@ -161,11 +162,16 @@ def expand_product_category(product_category_url, lvl_one_title='', lvl_two_titl
     item_container = soup.find_all('div', {'class': 'col-lg-6 col-xl-4 mb-5'})
     loaded_item_container = soup.find_all('div', {'class': 'col-lg-4 mb-5'})
 
-    print('[-] Initiating data collection from: {} / {} / {}   ({} total products)'.format(lvl_one_title, lvl_two_title, lvl_three_title, len(item_container) + len(loaded_item_container)))
-    for product in item_container:
-        extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
-    for product in loaded_item_container:
-        extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
+    total_category_products = len(item_container) + len(loaded_item_container)
+    print('[-] Initiating data collection from: {} / {} / {}   ({} total products)'.format(lvl_one_title, lvl_two_title, lvl_three_title, total_category_products))
+    with tqdm(total=total_category_products) as progress_bar:
+        for product in item_container:
+            extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
+            progress_bar.update()
+        for product in loaded_item_container:
+            extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
+            progress_bar.update()
+        progress_bar.close()
     print('[+] Data collection is over from: {} / {} / {} '.format(lvl_one_title, lvl_two_title, lvl_three_title))
 
 
@@ -191,7 +197,7 @@ if __name__ == '__main__':
     get_menu_links()
 
     remaining_links = get_total_links()
-    print('[@] Total categories: {}'.format(remaining_links))
+    print('[*] Total categories: {}'.format(remaining_links))
 
     with io.open('data.csv', mode='w') as csv_file:
         csv_file = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -201,16 +207,16 @@ if __name__ == '__main__':
             if not isinstance(v, dict):
                 expand_product_category(v, k)
                 remaining_links -= 1
-                print('[@] Remaining categories: {}'.format(remaining_links))
+                print('[*] Remaining categories: {}'.format(remaining_links))
                 continue
             for kk, vv in v.items():
                 if not isinstance(vv, dict):
                     expand_product_category(vv, k, kk)
                     remaining_links -= 1
-                    print('[@] Remaining categories: {}'.format(remaining_links))
+                    print('[*] Remaining categories: {}'.format(remaining_links))
                     continue
                 for kkk, vvv in vv.items():
                     expand_product_category(vvv, k, kk, kkk)
                     remaining_links -= 1
-                    print('[@] Remaining categories: {}'.format(remaining_links))
-    print('[@] Data collection is over')
+                    print('[*] Remaining categories: {}'.format(remaining_links))
+    print('[*] Data collection is over')
