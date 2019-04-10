@@ -14,15 +14,24 @@ WAIT = 10
 def init():
     # Create image folder
     current_path = os.getcwd()
-    if not os.path.exists(current_path + '/images'):
-        os.mkdir(current_path + '/images')
+    folder = current_path + '/images'
+    if not os.path.exists(folder):
+        os.mkdir(folder)
+    else:   # Delete inner files
+        for the_file in os.listdir(folder):
+            file_path = os.path.join(folder, the_file)
+            try:
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+            except Exception as e:
+                print(e)
 
     options = webdriver.ChromeOptions()
     options.add_argument('--ignore-certificate-errors')
     options.add_argument('--incognito')
     options.add_argument('--headless')
     options.add_argument('--silent')
-    d = webdriver.Chrome("/home/satner/Desktop/farmakeio scrap/chromedriver", chrome_options=options)
+    d = webdriver.Chrome('/home/satner/Desktop/farmakeio scrap/chromedriver', chrome_options=options)
     d.set_window_size(1224, 937)
 
     return d
@@ -70,7 +79,7 @@ def store_product_image(product_name, image_slider):
     clean_product_name = stripped_product_name.replace('/', '-')
     for img_element in image_slider:
         image_file_type = (img_element.img['src'].split('/')[-1]).split('.')[-1]
-        image_name = image_folder_path + "/" + clean_product_name + '-' + str(k) + '.' + image_file_type
+        image_name = image_folder_path + '/' + clean_product_name + '-' + str(k) + '.' + image_file_type
         urllib.request.urlretrieve(img_element.img['src'], image_name)
         k += 1
 
@@ -182,6 +191,7 @@ if __name__ == '__main__':
     get_menu_links()
 
     remaining_links = get_total_links()
+    print('[@] Total categories: {}'.format(remaining_links))
 
     with io.open('data.csv', mode='w') as csv_file:
         csv_file = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
@@ -191,15 +201,16 @@ if __name__ == '__main__':
             if not isinstance(v, dict):
                 expand_product_category(v, k)
                 remaining_links -= 1
-                print('[*] Remaining categories: {}'.format(remaining_links))
+                print('[@] Remaining categories: {}'.format(remaining_links))
                 continue
             for kk, vv in v.items():
                 if not isinstance(vv, dict):
                     expand_product_category(vv, k, kk)
                     remaining_links -= 1
-                    print('[*] Remaining categories: {}'.format(remaining_links))
+                    print('[@] Remaining categories: {}'.format(remaining_links))
                     continue
                 for kkk, vvv in vv.items():
                     expand_product_category(vvv, k, kk, kkk)
                     remaining_links -= 1
-                    print('[*] Remaining categories: {}'.format(remaining_links))
+                    print('[@] Remaining categories: {}'.format(remaining_links))
+    print('[@] Data collection is over')
