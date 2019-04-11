@@ -3,6 +3,9 @@ import csv
 import io
 import os
 import urllib.request
+import threading
+from queue import Queue
+
 from selenium import webdriver
 from bs4 import BeautifulSoup
 from tqdm import tqdm
@@ -10,6 +13,7 @@ from tqdm import tqdm
 SITE_URL = 'https://www.farmakeioexpress.gr/el'
 SITE_URL_NO_LANG = 'https://www.farmakeioexpress.gr'
 WAIT = 10
+NUMBER_OF_THREADS = 4
 
 
 def init():
@@ -18,7 +22,7 @@ def init():
     folder = current_path + '/images'
     if not os.path.exists(folder):
         os.mkdir(folder)
-    else:   # Delete inner files
+    else:  # Delete inner files
         for the_file in os.listdir(folder):
             file_path = os.path.join(folder, the_file)
             try:
@@ -94,7 +98,9 @@ def extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
     product_description_container = soup.select_one('.container-fluid.product-description .row')
 
     # brand title div
-    brand_title = product_description_container.select_one('.col-md-12.brand-title').text
+    brand_title = ''
+    if not product_description_container.select_one('.col-md-12.brand-title'):
+        brand_title = product_description_container.select_one('.col-md-12.brand-title').text
 
     # product title div
     product_title = product_description_container.find('h1').text
@@ -141,16 +147,38 @@ def extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
             tab_row[2] = tab_content_dict['tab-3']
 
     # write product details to csv file
-    row = [lvl_one_title, lvl_two_title, lvl_three_title, brand_title, product_title, product_price_del, product_price_strong, product_status_availability,
-         product_status_barcode, product_status_code, product_description_text]
-    csv_file.writerow(row + tab_row)
+    row = [lvl_one_title, lvl_two_title, lvl_three_title, brand_title, product_title, product_price_del,
+           product_price_strong, product_status_availability,
+           product_status_barcode, product_status_code, product_description_text]
+
+    with lock:
+        csv_file.writerow(row + tab_row)
 
 
-def expand_product_category(product_category_url, lvl_one_title='', lvl_two_title='', lvl_three_title=''):
+def expand_product_category(args):
+    global remaining_links
+
+    if len(args) == 2:
+        product_category_url = args[0]
+        lvl_one_title = args[1]
+        lvl_two_title = ''
+        lvl_three_title = ''
+    elif len(args) == 3:
+        product_category_url = args[0]
+        lvl_one_title = args[1]
+        lvl_two_title = args[2]
+        lvl_three_title = ''
+    elif len(args) == 4:
+        product_category_url = args[0]
+        lvl_one_title = args[1]
+        lvl_two_title = args[2]
+        lvl_three_title = args[3]
+
     driver.get(SITE_URL_NO_LANG + product_category_url)
     while True:
         try:
-            load_more_button = driver.find_element_by_xpath("	//*[contains(concat(\" \",normalize-space(@class),\" \"),\" gy-load-more \")][contains(concat(\" \",normalize-space(@class),\" \"),\" btn-standard \")][contains(concat(\" \",normalize-space(@class),\" \"),\" green \")]")
+            load_more_button = driver.find_element_by_xpath(
+                "	//*[contains(concat(\" \",normalize-space(@class),\" \"),\" gy-load-more \")][contains(concat(\" \",normalize-space(@class),\" \"),\" btn-standard \")][contains(concat(\" \",normalize-space(@class),\" \"),\" green \")]")
             driver.execute_script('arguments[0].click()', load_more_button)
         except Exception as e:
             # print(e)
@@ -163,8 +191,14 @@ def expand_product_category(product_category_url, lvl_one_title='', lvl_two_titl
     loaded_item_container = soup.find_all('div', {'class': 'col-lg-4 mb-5'})
 
     total_category_products = len(item_container) + len(loaded_item_container)
-    print('[-] Initiating data collection from: {} / {} / {}   ({} total products)'.format(lvl_one_title, lvl_two_title, lvl_three_title, total_category_products))
+
     with tqdm(total=total_category_products) as progress_bar:
+        with lock:
+            print('[-] Initiating data collection from: {} / {} / {}   ({} total products)'.format(lvl_one_title,
+                                                                                                   lvl_two_title,
+                                                                                                   lvl_three_title,
+                                                                                                   total_category_products))
+        print(f'Thread number {threading.current_thread().getName()}  id: {threading.current_thread().ident}')
         for product in item_container:
             extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
             progress_bar.update()
@@ -172,7 +206,11 @@ def expand_product_category(product_category_url, lvl_one_title='', lvl_two_titl
             extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
             progress_bar.update()
         progress_bar.close()
-    print('[+] Data collection is over from: {} / {} / {} '.format(lvl_one_title, lvl_two_title, lvl_three_title))
+
+    with lock:
+        remaining_links -= 1
+        print('[+] Data collection is over from: {} / {} / {} '.format(lvl_one_title, lvl_two_title, lvl_three_title))
+        print('[*] Remaining categories: {}'.format(remaining_links))
 
 
 def get_total_links():
@@ -189,6 +227,13 @@ def get_total_links():
     return counter
 
 
+def worker():
+    while True:
+        item = q.get()
+        expand_product_category(item)
+        q.task_done()
+
+
 if __name__ == '__main__':
     driver = init()
 
@@ -200,23 +245,30 @@ if __name__ == '__main__':
     print('[*] Total categories: {}'.format(remaining_links))
 
     with io.open('data.csv', mode='w') as csv_file:
+        q = Queue()
+        lock = threading.Lock()
         csv_file = csv.writer(csv_file, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
-        csv_file.writerow(['lvl_one_title', 'lvl_two_title', 'lvl_three_title', 'brand_title', 'product_title', 'product_price_del', 'product_price_strong', 'product_status_availability',
-         'product_status_barcode', 'product_status_code', 'product_description_text', 'description', 'instructions', 'components'])
+        csv_file.writerow(
+            ['lvl_one_title', 'lvl_two_title', 'lvl_three_title', 'brand_title', 'product_title', 'product_price_del',
+             'product_price_strong', 'product_status_availability',
+             'product_status_barcode', 'product_status_code', 'product_description_text', 'description', 'instructions',
+             'components'])
         for k, v in menu_links.items():
             if not isinstance(v, dict):
-                expand_product_category(v, k)
-                remaining_links -= 1
-                print('[*] Remaining categories: {}'.format(remaining_links))
+                q.put((v, k))
                 continue
             for kk, vv in v.items():
                 if not isinstance(vv, dict):
-                    expand_product_category(vv, k, kk)
-                    remaining_links -= 1
-                    print('[*] Remaining categories: {}'.format(remaining_links))
+                    q.put((vv, k, kk))
                     continue
                 for kkk, vvv in vv.items():
-                    expand_product_category(vvv, k, kk, kkk)
-                    remaining_links -= 1
-                    print('[*] Remaining categories: {}'.format(remaining_links))
+                    q.put((vvv, k, kk, kkk))
+
+        for i in range(NUMBER_OF_THREADS):
+            t = threading.Thread(target=worker)
+            # t.daemon = True
+            t.start()
+
+        q.join()
+
     print('[*] Data collection is over')
