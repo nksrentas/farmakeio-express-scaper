@@ -36,21 +36,22 @@ def init():
     options.add_argument('--incognito')
     options.add_argument('--headless')
     options.add_argument('--silent')
-    d = webdriver.Chrome('/home/satner/Desktop/farmakeio scrap/chromedriver', chrome_options=options)
-    d.set_window_size(1224, 937)
 
-    return d
+    for _ in range(NUMBER_OF_THREADS):
+        d = webdriver.Chrome('/home/satner/Desktop/farmakeio scrap/chromedriver', chrome_options=options)
+        d.set_window_size(1224, 937)
+        drivers.append(d)
 
 
 def get_menu_links():
-    driver.implicitly_wait(WAIT)
-    driver.get(SITE_URL)
+    drivers[0].implicitly_wait(WAIT)
+    drivers[0].get(SITE_URL)
 
-    cookies_button = driver.find_element_by_xpath(
+    cookies_button = drivers[0].find_element_by_xpath(
         '//*[contains(concat(" ",normalize-space(@class)," ")," gdpr-cm-accept ")]')
     cookies_button.click()
 
-    page_source = driver.page_source
+    page_source = drivers[0].page_source
     soup = BeautifulSoup(page_source, 'lxml')
     menu_container = soup.find('div', {'class': 'row menu-items-block'})
     menu_item_container = menu_container.find_all('div', {'class': 'col-md-3 col-sm-12 menu-item accordion'})
@@ -89,18 +90,17 @@ def store_product_image(product_name, image_slider):
         k += 1
 
 
-def extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title):
+def extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title, driver):
     product_link = product.select_one('.product-description.eq a')['href']
-    with lock:
-        driver.get(SITE_URL_NO_LANG + product_link)
-        page_source = driver.page_source
+    driver.get(SITE_URL_NO_LANG + product_link)
+    page_source = driver.page_source
     soup = BeautifulSoup(page_source, 'lxml')
 
     product_description_container = soup.select_one('.container-fluid.product-description .row')
 
     # brand title div
     brand_title = ''
-    if not product_description_container.select_one('.col-md-12.brand-title'):
+    if product_description_container.select_one('.col-md-12.brand-title'):
         brand_title = product_description_container.select_one('.col-md-12.brand-title').text
 
     # product title div
@@ -156,7 +156,7 @@ def extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
         csv_file.writerow(row + tab_row)
 
 
-def expand_product_category(args):
+def expand_product_category(args, driver):
     global remaining_links
 
     if len(args) == 2:
@@ -175,19 +175,16 @@ def expand_product_category(args):
         lvl_two_title = args[2]
         lvl_three_title = args[3]
 
-    with lock:
-        driver.get(SITE_URL_NO_LANG + product_category_url)
-        while True:
-            try:
-                load_more_button = driver.find_element_by_xpath(
-                    "	//*[contains(concat(\" \",normalize-space(@class),\" \"),\" gy-load-more \")][contains(concat(\" \",normalize-space(@class),\" \"),\" btn-standard \")][contains(concat(\" \",normalize-space(@class),\" \"),\" green \")]")
-                driver.execute_script('arguments[0].click()', load_more_button)
-            except Exception as e:
-                # print(
-                #     f'Thread number {threading.current_thread().getName()}  id: {threading.current_thread().ident} args: \n {args}')
-                break
+    driver.get(SITE_URL_NO_LANG + product_category_url)
+    while True:
+        try:
+            load_more_button = driver.find_element_by_xpath(
+                "	//*[contains(concat(\" \",normalize-space(@class),\" \"),\" gy-load-more \")][contains(concat(\" \",normalize-space(@class),\" \"),\" btn-standard \")][contains(concat(\" \",normalize-space(@class),\" \"),\" green \")]")
+            driver.execute_script('arguments[0].click()', load_more_button)
+        except Exception as e:
+            break
 
-        page_source = driver.page_source
+    page_source = driver.page_source
     soup = BeautifulSoup(page_source, 'lxml')
 
     item_container = soup.find_all('div', {'class': 'col-lg-6 col-xl-4 mb-5'})
@@ -200,13 +197,13 @@ def expand_product_category(args):
                                                                                                    lvl_two_title,
                                                                                                    lvl_three_title,
                                                                                                    total_category_products)
-            progress_bar.display(msg=start_msg)
+            progress_bar.write(start_msg)
 
         for product in item_container:
-            extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
+            extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title, driver)
             progress_bar.update()
         for product in loaded_item_container:
-            extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title)
+            extract_product_data(product, lvl_one_title, lvl_two_title, lvl_three_title, driver)
             progress_bar.update()
         progress_bar.close()
 
@@ -214,8 +211,8 @@ def expand_product_category(args):
         remaining_links -= 1
         end_msg = '[+] Data collection is over from: {} / {} / {} '.format(lvl_one_title, lvl_two_title, lvl_three_title)
         remaining_msg = '[*] Remaining categories: {}'.format(remaining_links)
-        progress_bar.display(msg=end_msg)
-        progress_bar.display(msg=remaining_msg)
+        progress_bar.write(end_msg)
+        progress_bar.write(remaining_msg)
 
 
 def get_total_links():
@@ -232,15 +229,16 @@ def get_total_links():
     return counter
 
 
-def worker():
+def worker(driver):
     while True:
         item = q.get()
-        expand_product_category(item)
+        expand_product_category(item, driver)
         q.task_done()
 
 
 if __name__ == '__main__':
-    driver = init()
+    drivers = []
+    init()
 
     menu_links = {}
     image_folder_path = os.getcwd() + '/images'
@@ -270,7 +268,7 @@ if __name__ == '__main__':
                     q.put((vvv, k, kk, kkk))
 
         for i in range(NUMBER_OF_THREADS):
-            t = threading.Thread(target=worker)
+            t = threading.Thread(target=worker, args=(drivers[i],))
             t.daemon = True
             t.start()
 
