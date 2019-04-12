@@ -16,11 +16,14 @@
 
 - [x] [Download Selenium Chrome Driver](http://chromedriver.chromium.org/downloads)
 
-- [x] Place your chrome driver path into code (line 25)
+- [x] Place your chrome driver path into code (line 35)
 
 
 ### Running
 
 ```python
     python3 farmakeio_scrap.py
+```
+```python
+    python3 multithreading_farmakeio.py
 ```
